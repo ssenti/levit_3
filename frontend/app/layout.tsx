@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "AI 영양제 비서 - 맞춤형 영양제 추천",
-  description: "AI 기반 개인 맞춤형 영양제 추천 서비스. 3분만에 당신에게 최적의 영양제를 찾아보세요.",
+  description: "AI 기반 개인 맞춤형 영양제 추천 서비스. 1분만에 당신에게 최적의 영양제를 찾아보세요.",
 };
 
 export default function RootLayout({

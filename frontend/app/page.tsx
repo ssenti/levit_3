@@ -562,7 +562,7 @@ export default function Home() {
                 <svg className="w-3 h-3 text-warning" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
                 </svg>
-                <span className="text-xs md:text-sm font-medium text-warning">3분 분석</span>
+                <span className="text-xs md:text-sm font-medium text-warning">1분 분석</span>
               </div>
             </div>
           </div>
@@ -576,7 +576,9 @@ export default function Home() {
           </h2>
           <p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto px-4">
             AI 기반 분석으로 개인의 건강 상태와 목표에 맞는 영양제를 추천해드립니다. 
+            <br></br>
             간단한 정보 입력만으로 전문가 수준의 추천을 받아보세요.
+            
           </p>
         </div>
 
@@ -586,7 +588,7 @@ export default function Home() {
             <CardHeader className="text-center">
               <CardTitle className="text-2xl">기본 정보 입력</CardTitle>
               <CardDescription className="text-base">
-                3분만 투자하시면 AI가 분석해서 최적의 영양제를 추천해드립니다.
+                1분만 투자하시면 AI가 분석해서 최적의 영양제를 추천해드립니다.
               </CardDescription>
           </CardHeader>
                         <CardContent className="space-y-8">
@@ -675,7 +677,7 @@ export default function Home() {
                     </div>
                   </div>
                   
-                  <p className="text-sm text-muted-foreground text-center">
+                  <p className="text-sm text-muted-foreground text-left">
                     💡 예산에 맞는 최적의 가성비 제품을 추천해드립니다
                   </p>
             </div>
