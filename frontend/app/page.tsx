@@ -15,6 +15,20 @@ import DOMPurify from "dompurify";
 // For local dev, it falls back to http://localhost:8000
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
+// Narrowing helpers to avoid `any` when handling unknown JSON
+function isRecommendResult(value: unknown): value is RecommendResult {
+  if (typeof value !== "object" || value === null) return false;
+  const obj = value as { ranked?: unknown };
+  return Array.isArray(obj.ranked);
+}
+
+function extractErrorDetail(value: unknown): string | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("detail" in value)) return null;
+  const detail = (value as { detail?: unknown }).detail;
+  return typeof detail === "string" ? detail : null;
+}
+
 export default function Home() {
   const [supplementType, setSupplementType] = useState("오메가‑3");
   const [isCustomSupplement, setIsCustomSupplement] = useState(false);
@@ -109,17 +123,17 @@ export default function Home() {
           products: initialProducts ?? undefined,
         }),
       });
-      let data: RecommendResult | null = null;
+      let data: unknown = null;
       try {
         data = await res.json();
-      } catch (_) {
+      } catch {
         data = null;
       }
-      if (!res.ok || !data || !Array.isArray((data as any).ranked)) {
-        const message = (data as any)?.detail || "추천 결과를 가져오지 못했습니다";
+      if (!res.ok || !isRecommendResult(data)) {
+        const message = extractErrorDetail(data) ?? "추천 결과를 가져오지 못했습니다";
         throw new Error(message);
       }
-      setResult(data as RecommendResult);
+      setResult(data);
       setStep("result");
     } catch (e) {
       console.error(e);
