@@ -10,7 +10,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 
-const API_BASE = "http://localhost:8000"; // change to Render URL on deploy
+// Backend base URL
+// In production (Vercel), set NEXT_PUBLIC_API_BASE to your Render URL, e.g. https://your-app.onrender.com
+// For local dev, it falls back to http://localhost:8000
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
 export default function Home() {
   const [supplementType, setSupplementType] = useState("오메가‑3 지방산");
