@@ -214,6 +214,39 @@ export default function Home() {
           </Card>
         )}
 
+        {initialProducts && (
+          <Card>
+            <CardHeader>
+              <CardTitle>수집된 후보 10개 (Perplexity)</CardTitle>
+              <CardDescription>최종 추천의 근거가 된 원천 테이블</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-left">
+                    <tr className="border-b">
+                      <th className="py-2 pr-3">제품</th>
+                      <th className="py-2 pr-3">브랜드</th>
+                      <th className="py-2 pr-3">성분 함량</th>
+                      <th className="py-2 pr-3">월 가격</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {initialProducts.slice(0,10).map((p, i) => (
+                      <tr key={i} className="border-b last:border-0">
+                        <td className="py-2 pr-3">{p.product_name}</td>
+                        <td className="py-2 pr-3">{p.brand ?? '-'}</td>
+                        <td className="py-2 pr-3">{p.key_ingredient ? `${p.key_ingredient} ${p.ingredient_amount ?? '-'} ${p.ingredient_unit ?? ''}` : '-'}</td>
+                        <td className="py-2 pr-3">{typeof p.price_per_month_krw === 'number' ? `${p.price_per_month_krw.toLocaleString()}원` : '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="flex justify-end">
           <Button variant="outline" onClick={() => { setStep("input"); setResult(null); }}>처음으로</Button>
         </div>
