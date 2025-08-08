@@ -1,4 +1,4 @@
-# Always AI Supplement Assistant MVP - Backend
+# AI Supplement Assistant - Backend
 
 Run locally
 
