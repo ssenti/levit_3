@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import { ClarifyQuestion, ClarifyResponse, RecommendResult, Product } from "./api/types";
+import { ClarifyQuestion, ClarifyResponse, RecommendResult, Product, JSONRecord } from "./api/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,10 +21,10 @@ export default function Home() {
   const [customSupplementType, setCustomSupplementType] = useState("");
   const [budget, setBudget] = useState<number>(30000);
   const [concerns, setConcerns] = useState("50대 여성, 혈행 개선 및 기억력 저하");
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const [step, setStep] = useState<"input" | "clarify" | "loading" | "result">("input");
   const [questions, setQuestions] = useState<ClarifyQuestion[]>([]);
-  const [answers, setAnswers] = useState<Record<string, any>>({});
+  const [answers, setAnswers] = useState<JSONRecord>({});
   const [result, setResult] = useState<RecommendResult | null>(null);
   const [initialProducts, setInitialProducts] = useState<Product[] | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -45,12 +45,8 @@ export default function Home() {
     return `${value.toLocaleString()}원`;
   };
 
-  const getSelectedSupplementType = () => {
-    return isCustomSupplement ? customSupplementType : supplementType;
-  };
-
   const canSubmit = useMemo(() => {
-    const selectedType = getSelectedSupplementType();
+    const selectedType = isCustomSupplement ? customSupplementType : supplementType;
     return selectedType.trim().length > 0 && concerns.trim().length > 0;
   }, [supplementType, isCustomSupplement, customSupplementType, concerns]);
 
@@ -60,7 +56,7 @@ export default function Home() {
     setStartedAt(Date.now());
     try {
       // kick off product search in parallel to show table during loading
-      const selectedType = getSelectedSupplementType();
+      const selectedType = isCustomSupplement ? customSupplementType : supplementType;
       const searchPromise = fetch(`${API_BASE}/api/search_products`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -97,11 +93,11 @@ export default function Home() {
     }
   }
 
-  async function doRecommend(extraAnswers: Record<string, any>) {
+  async function doRecommend(extraAnswers: JSONRecord) {
     setLoading(true);
     setStep("loading");
     try {
-      const selectedType = getSelectedSupplementType();
+      const selectedType = isCustomSupplement ? customSupplementType : supplementType;
       const res = await fetch(`${API_BASE}/api/recommend`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -125,7 +121,7 @@ export default function Home() {
   }
 
   function ClarifyView() {
-    const [local, setLocal] = useState<Record<string, any>>({});
+    const [local, setLocal] = useState<JSONRecord>({});
   return (
       <div className="max-w-3xl mx-auto animate-slide-up px-4 sm:px-0">
         <Card className="card-gradient shadow-medium border-border/50">
@@ -160,7 +156,7 @@ export default function Home() {
                   </div>
                   <Textarea
                       placeholder="추가 설명이 있으시면 자유롭게 적어주세요 (선택사항)"
-                    value={local[`${q.id}__text`] ?? ""}
+                    value={String(local[`${q.id}__text`] ?? "")}
                     onChange={(e) => setLocal((p) => ({ ...p, [`${q.id}__text`]: e.target.value }))}
                     rows={2}
                       className="text-base"
@@ -168,7 +164,7 @@ export default function Home() {
                   </div>
                 ) : (
                   <Input 
-                    value={local[q.id] ?? ""} 
+                    value={String(local[q.id] ?? "")} 
                     onChange={(e) => setLocal((p) => ({ ...p, [q.id]: e.target.value }))} 
                     className="h-12 text-base"
                     placeholder="답변을 입력해주세요"
@@ -198,13 +194,11 @@ export default function Home() {
   }
 
   function ResultView() {
+    const finalAdviceHtml = result?.final_advice_markdown
+      ? DOMPurify.sanitize(String(marked.parse(result.final_advice_markdown)))
+      : null;
+
     if (!result) return null;
-    const finalAdviceHtml = useMemo(() => {
-      if (!result?.final_advice_markdown) return null;
-      const raw = marked.parse(result.final_advice_markdown);
-      // @ts-ignore DOMPurify typings
-      return DOMPurify.sanitize(String(raw));
-    }, [result?.final_advice_markdown]);
 
     const getRankBadgeColor = (rank: number) => {
       switch (rank) {

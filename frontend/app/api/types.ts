@@ -16,7 +16,7 @@ export type ClarifyResponse = {
 };
 
 export type RecommendInput = ClarifyInput & {
-  answers: Record<string, any>;
+  answers: JSONRecord;
 };
 
 export type Product = {
@@ -56,4 +56,9 @@ export type RecommendResult = {
   ranked: RankedProduct[];
   final_advice_markdown?: string | null;
 };
+
+// Generic JSON value types to avoid `any` for dynamic answer maps
+export type JSONPrimitive = string | number | boolean | null;
+export type JSONValue = JSONPrimitive | JSONValue[] | { [key: string]: JSONValue };
+export type JSONRecord = Record<string, JSONValue>;
 
