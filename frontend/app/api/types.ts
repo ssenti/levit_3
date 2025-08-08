@@ -22,8 +22,9 @@ export type RecommendInput = ClarifyInput & {
 export type Product = {
   product_name: string;
   brand?: string | null;
-  epa_mg?: number | null;
-  dha_mg?: number | null;
+  key_ingredient?: string | null;
+  ingredient_amount?: number | null;
+  ingredient_unit?: string | null;
   price_per_month_krw?: number | null;
   capsule_type?: string | null;
   capsule_count?: number | null;
@@ -36,7 +37,9 @@ export type ProductInsight = {
   pros: string[];
   cons: string[];
   brand_trust_score_0to100?: number | null;
+  brand_trust_summary_kr?: string | null;
   review_sentiment_0to100?: number | null;
+  review_summary_kr?: string | null;
   safety_flags: string[];
   notes?: string | null;
 };

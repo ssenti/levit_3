@@ -58,13 +58,16 @@ class ClarifyResponse(BaseModel):
 
 class RecommendInput(ClarifyInput):
     answers: Dict[str, Any] = Field(default_factory=dict)
+    products: Optional[List[Product]] = None
 
 
 class Product(BaseModel):
     product_name: str
     brand: Optional[str] = None
-    epa_mg: Optional[int] = None
-    dha_mg: Optional[int] = None
+    # Generic ingredient fields so we can support any supplement type
+    key_ingredient: Optional[str] = None
+    ingredient_amount: Optional[float] = None  # numeric value only
+    ingredient_unit: Optional[str] = None      # mg | mcg | IU | CFU | etc
     price_per_month_krw: Optional[int] = None
     capsule_type: Optional[str] = None
     capsule_count: Optional[int] = None
@@ -80,6 +83,8 @@ class ProductInsight(BaseModel):
     review_sentiment_0to100: Optional[int] = None
     safety_flags: List[str] = Field(default_factory=list)
     notes: Optional[str] = None
+    brand_trust_summary_kr: Optional[str] = None
+    review_summary_kr: Optional[str] = None
 
 
 class RankedProduct(BaseModel):
@@ -113,7 +118,7 @@ async def call_perplexity_json(prompt: str) -> Dict[str, Any]:
         "Content-Type": "application/json",
     }
     body = {
-        "model": "sonar",
+        "model": "sonar-pro",
         "messages": [
             {"role": "system", "content": "Be precise and concise. Return ONLY strict minified JSON with no code fences."},
             {"role": "user", "content": prompt},
@@ -169,26 +174,25 @@ def infer_weights(answers: Dict[str, Any]) -> Tuple[float, float, float]:
     return 0.34, 0.33, 0.33
 
 
-def concern_focus(concerns: str) -> Tuple[float, float]:
-    text = concerns.lower()
-    epa_weight = 0.5
-    dha_weight = 0.5
-    if "혈행" in text or "circulation" in text or "트리글리세라이드" in text:
-        epa_weight = 0.7
-        dha_weight = 0.3
-    if "기억" in text or "memory" in text or "뇌" in text:
-        epa_weight = 0.4
-        dha_weight = 0.6
-    return epa_weight, dha_weight
+def parse_float(value: Any) -> Optional[float]:
+    try:
+        if value is None:
+            return None
+        s = str(value).replace(",", "").strip()
+        return float(s)
+    except Exception:
+        return None
 
 
 @app.post("/api/clarify", response_model=ClarifyResponse)
 async def clarify(payload: ClarifyInput) -> ClarifyResponse:
-    """Ask Gemini for up to 0-2 clarifying questions to improve recommendation quality."""
+    """Ask Gemini for 1-3 clarifying questions to improve recommendation quality."""
     instructions = (
-        "사용자가 입력한 정보만으로 충분하면 추가 질문 없이 빈 목록을 반환하세요.\n"
-        "최대 2개의 질문만, JSON 형식으로 반환하세요. 질문 타입은 text 또는 single_choice를 사용하세요.\n"
-        "가능하면 두 번째 질문은 선호도(가성비 vs 원료/브랜드 신뢰도)를 single_choice로 제시하세요."
+        "반드시 최소 1개, 최대 3개의 Clarifying 질문을 한국어로 생성하세요.\n"
+        "질문은 사용자의 입력(영양제 종류, 예산, 대상/고민)에서 불명확하거나 결정 품질에 중요한 부분을 보완하도록 하세요.\n"
+        "각 질문은 text 또는 single_choice로 구성하되, single_choice에도 자유서술 보강을 허용한다는 메시지를 포함하세요(예: '선택 후 필요시 아래에 자세히 적어주세요').\n"
+        "가능하면 한 질문은 선호도(가성비 vs 원료/브랜드 신뢰)이며, 나머지는 안전성/복용 맥락(동복용 약, 알레르기, 선호 원료형태 등)을 다루세요.\n"
+        "JSON만 출력하세요."
     )
 
     prompt = {
@@ -225,7 +229,17 @@ async def clarify(payload: ClarifyInput) -> ClarifyResponse:
         raw_questions = []
 
     questions: List[ClarifyQuestion] = []
-    for i, q in enumerate(raw_questions[:2]):
+    # enforce 1-3
+    max_q = 3
+    if not raw_questions:
+        raw_questions = [
+            {
+                "id": "q1",
+                "question": "혹시 현재 복용 중인 약/영양제가 있다면 알려주세요. 알레르기나 피하고 싶은 원료가 있나요?",
+                "kind": "text",
+            }
+        ]
+    for i, q in enumerate(raw_questions[:max_q]):
         questions.append(
             ClarifyQuestion(
                 id=str(q.get("id", f"q{i+1}")),
@@ -238,19 +252,62 @@ async def clarify(payload: ClarifyInput) -> ClarifyResponse:
     return ClarifyResponse(questions=questions)
 
 
-@app.post("/api/recommend", response_model=RecommendResult)
-async def recommend(payload: RecommendInput) -> RecommendResult:
-    # Step 3: fetch 10 products from Perplexity as JSON
+class SearchResponse(BaseModel):
+    products: List[Product]
+
+
+@app.post("/api/search_products", response_model=SearchResponse)
+async def search_products(payload: ClarifyInput) -> SearchResponse:
+    """Return initial 10 products table fast for loading view."""
     query = (
         f"한국 시장 기준 '{payload.supplement_type}' 대표 제품 10개를 추천용으로 선정. "
         "아래 JSON 스키마로만 출력: {\n"
-        "  \"products\": [ {\"product_name\": str, \"brand\": str, \"epa_mg\": int|null, \"dha_mg\": int|null, "
+        "  \"products\": [ {\"product_name\": str, \"brand\": str, \"key_ingredient\": str|null, \"ingredient_amount\": number|null, \"ingredient_unit\": str|null, "
         "  \"price_per_month_krw\": int|null, \"capsule_type\": str|null, \"capsule_count\": int|null, \"daily_dose\": str|null, \"purchase_url\": str|null } ]\n}"
-        "\n주의: 숫자만, 단위 제거, 한국에서 구매 가능 제품 위주."
+        "\n주의: 수치는 숫자만, 단위는 별도 필드(ingredient_unit)에 표기. 한국에서 구매 가능 제품 위주."
     )
 
     data = await call_perplexity_json(query)
     products_raw = data.get("products") or data.get("items") or []
+    products: List[Product] = []
+    for item in products_raw:
+        try:
+            products.append(Product(**item))
+        except Exception:
+            products.append(
+                Product(
+                    product_name=str(item.get("product_name") or item.get("name") or "unknown"),
+                    brand=(item.get("brand") and str(item.get("brand"))) or None,
+                    key_ingredient=(item.get("key_ingredient") and str(item.get("key_ingredient"))) or None,
+                    ingredient_amount=parse_float(item.get("ingredient_amount")),
+                    ingredient_unit=(item.get("ingredient_unit") and str(item.get("ingredient_unit"))) or None,
+                    price_per_month_krw=int(str(item.get("price_per_month_krw")).replace(",", ""))
+                    if str(item.get("price_per_month_krw")).replace("_", "").replace(",", "").isdigit()
+                    else None,
+                    capsule_type=item.get("capsule_type"),
+                    capsule_count=int(item.get("capsule_count")) if str(item.get("capsule_count")).isdigit() else None,
+                    daily_dose=item.get("daily_dose"),
+                    purchase_url=item.get("purchase_url"),
+                )
+            )
+    return SearchResponse(products=products)
+
+
+@app.post("/api/recommend", response_model=RecommendResult)
+async def recommend(payload: RecommendInput) -> RecommendResult:
+    # Step 3: fetch 10 products from Perplexity as JSON
+    if payload.products:
+        products_raw = [p.model_dump() if isinstance(p, Product) else p for p in payload.products]
+    else:
+        query = (
+            f"한국 시장 기준 '{payload.supplement_type}' 대표 제품 10개를 추천용으로 선정. "
+            "아래 JSON 스키마로만 출력: {\n"
+            "  \"products\": [ {\"product_name\": str, \"brand\": str, \"key_ingredient\": str|null, \"ingredient_amount\": number|null, \"ingredient_unit\": str|null, "
+            "  \"price_per_month_krw\": int|null, \"capsule_type\": str|null, \"capsule_count\": int|null, \"daily_dose\": str|null, \"purchase_url\": str|null } ]\n}"
+            "\n주의: 수치는 숫자만, 단위는 별도 필드(ingredient_unit). 한국에서 구매 가능 제품 위주."
+        )
+        data = await call_perplexity_json(query)
+        products_raw = data.get("products") or data.get("items") or []
 
     products: List[Product] = []
     for item in products_raw:
@@ -286,31 +343,32 @@ async def recommend(payload: RecommendInput) -> RecommendResult:
             # if filtered all out, keep original
             products = [Product(**item) for item in products_raw[:10]] if products_raw else []
 
-    epa_w, dha_w = concern_focus(payload.target_and_concerns)
     value_w, trust_w, reviews_w = infer_weights(payload.answers)
 
-    mg_focus = []
+    potency_vals = []
     price_vals = []
     for p in products:
-        mg = (p.epa_mg or 0) * epa_w + (p.dha_mg or 0) * dha_w
-        mg_focus.append(mg)
+        potency = p.ingredient_amount or 0.0
+        potency_vals.append(potency)
         price_vals.append(float(p.price_per_month_krw) if p.price_per_month_krw else None)
 
-    mg_norm = normalize(mg_focus)
+    potency_norm = normalize(potency_vals)
     # Lower price is better: invert normalized price
     price_norm_raw = normalize([v if v is not None else 0.0 for v in price_vals])
     price_norm = [1.0 - v if price_vals[i] is not None else 0.5 for i, v in enumerate(price_norm_raw)]
 
-    # Step 5: qualitative insights for the top N (preliminary top by mg/price)
-    prelim_scores = [0.7 * mg_norm[i] + 0.3 * price_norm[i] for i in range(len(products))]
+    # Step 5: qualitative insights for the top N (preliminary top by potency/price)
+    prelim_scores = [0.7 * potency_norm[i] + 0.3 * price_norm[i] for i in range(len(products))]
     prelim_indices = sorted(range(len(products)), key=lambda i: prelim_scores[i], reverse=True)[:3]
     top3 = [products[i] for i in prelim_indices]
 
     # Fetch qualitative info from Perplexity
     names = ", ".join([p.product_name for p in top3])
     qual_prompt = (
-        f"다음 제품들에 대해 한국 실사용 후기와 브랜드 신뢰도 공신력 자료를 요약하여 JSON만 출력. 제품: {names}.\n"
-        "스키마: {\n  \"insights\": [ { \"product_name\": str, \"pros\": [str], \"cons\": [str], \"brand_trust_score_0to100\": int, \"review_sentiment_0to100\": int, \"safety_flags\": [str], \"notes\": str|null } ]\n}"
+        "다음 제품들에 대해 한국 실사용 후기와 브랜드 신뢰도(언론/소비자원/공식 인증/제조 이력 등) 자료를 종합해 JSON만 출력.\n"
+        f"사용자 프로필/고민/답변을 반영해 문장 요약을 맞춤화하세요: {json.dumps({'target_and_concerns': payload.target_and_concerns, 'answers': payload.answers}, ensure_ascii=False)}\n"
+        f"제품: {names}.\n"
+        "스키마: {\n  \"insights\": [ { \"product_name\": str, \"pros\": [str], \"cons\": [str], \"brand_trust_score_0to100\": int, \"review_sentiment_0to100\": int, \"safety_flags\": [str], \"brand_trust_summary_kr\": str, \"review_summary_kr\": str, \"notes\": str|null } ]\n}"
     )
 
     insights_json = await call_perplexity_json(qual_prompt)
@@ -336,7 +394,7 @@ async def recommend(payload: RecommendInput) -> RecommendResult:
     final_scores = []
     for i, p in enumerate(products):
         score = (
-            value_w * (0.6 * price_norm[i] + 0.4 * mg_norm[i])
+            value_w * (0.6 * price_norm[i] + 0.4 * potency_norm[i])
             + trust_w * trust_norm[i]
             + reviews_w * review_norm[i]
         )

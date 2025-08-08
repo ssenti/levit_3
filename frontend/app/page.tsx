@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import { ClarifyQuestion, ClarifyResponse, RecommendResult } from "./api/types";
+import { ClarifyQuestion, ClarifyResponse, RecommendResult, Product } from "./api/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,6 +21,7 @@ export default function Home() {
   const [questions, setQuestions] = useState<ClarifyQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [result, setResult] = useState<RecommendResult | null>(null);
+  const [initialProducts, setInitialProducts] = useState<Product[] | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
 
   const canSubmit = useMemo(() => supplementType.trim().length > 0 && concerns.trim().length > 0, [supplementType, concerns]);
@@ -30,6 +31,17 @@ export default function Home() {
     setStep("loading");
     setStartedAt(Date.now());
     try {
+      // kick off product search in parallel to show table during loading
+      const searchPromise = fetch(`${API_BASE}/api/search_products`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          supplement_type: supplementType,
+          budget_krw_per_month: budget ? Number(budget) : null,
+          target_and_concerns: concerns,
+        }),
+      }).then(r => r.json()).catch(() => null);
+
       const res = await fetch(`${API_BASE}/api/clarify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -40,6 +52,8 @@ export default function Home() {
         }),
       });
       const data: ClarifyResponse = await res.json();
+      const searchData = await searchPromise;
+      if (searchData?.products) setInitialProducts(searchData.products);
       if (data.questions && data.questions.length > 0) {
         setQuestions(data.questions);
         setStep("clarify");
@@ -66,6 +80,7 @@ export default function Home() {
           budget_krw_per_month: budget ? Number(budget) : null,
           target_and_concerns: concerns,
           answers: { ...answers, ...extraAnswers },
+          products: initialProducts ?? undefined,
         }),
       });
       const data: RecommendResult = await res.json();
@@ -81,7 +96,7 @@ export default function Home() {
 
   function ClarifyView() {
     const [local, setLocal] = useState<Record<string, any>>({});
-    return (
+  return (
       <Card className="max-w-3xl w-full mx-auto mt-8">
         <CardHeader>
           <CardTitle>맞춤 질문</CardTitle>
@@ -92,17 +107,26 @@ export default function Home() {
             <div key={q.id} className="space-y-2">
               <Label>{q.question}</Label>
               {q.kind === "single_choice" && q.options ? (
-                <div className="flex flex-wrap gap-2">
-                  {q.options.map((op) => (
-                    <Button
-                      key={op}
-                      variant={local[q.id] === op ? "default" : "outline"}
-                      onClick={() => setLocal((prev) => ({ ...prev, [q.id]: op }))}
-                    >
-                      {op}
-                    </Button>
-                  ))}
-                </div>
+                <>
+                  <div className="flex flex-wrap gap-2">
+                    {q.options.map((op) => (
+                      <Button
+                        key={op}
+                        variant={local[q.id] === op ? "default" : "outline"}
+                        onClick={() => setLocal((prev) => ({ ...prev, [q.id]: op }))}
+                      >
+                        {op}
+                      </Button>
+                    ))}
+                  </div>
+                  <Textarea
+                    className="mt-2"
+                    placeholder="추가 설명 (선택)"
+                    value={local[`${q.id}__text`] ?? ""}
+                    onChange={(e) => setLocal((p) => ({ ...p, [`${q.id}__text`]: e.target.value }))}
+                    rows={2}
+                  />
+                </>
               ) : (
                 <Input value={local[q.id] ?? ""} onChange={(e) => setLocal((p) => ({ ...p, [q.id]: e.target.value }))} />
               )}
@@ -144,8 +168,11 @@ export default function Home() {
               <div>
                 <div className="text-sm text-muted-foreground">핵심 스펙</div>
                 <ul className="text-sm list-disc pl-5">
-                  {typeof r.product.epa_mg === 'number' && <li>EPA: {r.product.epa_mg} mg</li>}
-                  {typeof r.product.dha_mg === 'number' && <li>DHA: {r.product.dha_mg} mg</li>}
+                  {r.product.key_ingredient && (
+                    <li>
+                      성분 함량: {r.product.key_ingredient} {r.product.ingredient_amount ?? '-'} {r.product.ingredient_unit ?? ''}
+                    </li>
+                  )}
                   {typeof r.product.price_per_month_krw === 'number' && <li>월 가격: {r.product.price_per_month_krw?.toLocaleString()}원</li>}
                   {r.product.daily_dose && <li>권장 섭취: {r.product.daily_dose}</li>}
                 </ul>
@@ -158,6 +185,9 @@ export default function Home() {
                 {r.insight?.cons?.length ? (
                   <div className="mt-2 text-xs text-muted-foreground">주의: {r.insight.cons.slice(0,2).join(', ')}</div>
                 ) : null}
+                {r.insight?.brand_trust_summary_kr && (
+                  <div className="mt-2 text-xs">브랜드 신뢰도 요약: {r.insight.brand_trust_summary_kr}</div>
+                )}
               </div>
               <div className="flex flex-col gap-2">
                 {r.product.purchase_url && (
@@ -187,7 +217,7 @@ export default function Home() {
         <div className="flex justify-end">
           <Button variant="outline" onClick={() => { setStep("input"); setResult(null); }}>처음으로</Button>
         </div>
-      </div>
+    </div>
     );
   }
 
@@ -225,10 +255,40 @@ export default function Home() {
       {step === "clarify" && <ClarifyView />}
 
       {step === "loading" && (
-        <div className="mt-8 space-y-3">
-          <Skeleton className="h-6 w-64" />
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-24 w-full" />
+        <div className="mt-8 space-y-6">
+          <div>
+            <div className="text-base font-medium">실시간 후보 수집 중… (Perplexity)</div>
+            {!initialProducts && (
+              <div className="mt-2 space-y-2">
+                <Skeleton className="h-6 w-64" />
+                <Skeleton className="h-24 w-full" />
+              </div>
+            )}
+            {initialProducts && (
+              <div className="overflow-x-auto mt-3">
+                <table className="w-full text-sm">
+                  <thead className="text-left">
+                    <tr className="border-b">
+                      <th className="py-2 pr-3">제품</th>
+                      <th className="py-2 pr-3">브랜드</th>
+                      <th className="py-2 pr-3">성분 함량</th>
+                      <th className="py-2 pr-3">월 가격</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {initialProducts.slice(0,10).map((p, i) => (
+                      <tr key={i} className="border-b last:border-0">
+                        <td className="py-2 pr-3">{p.product_name}</td>
+                        <td className="py-2 pr-3">{p.brand ?? '-'}</td>
+                        <td className="py-2 pr-3">{p.key_ingredient ? `${p.key_ingredient} ${p.ingredient_amount ?? '-'} ${p.ingredient_unit ?? ''}` : '-'}</td>
+                        <td className="py-2 pr-3">{typeof p.price_per_month_krw === 'number' ? `${p.price_per_month_krw.toLocaleString()}원` : '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
