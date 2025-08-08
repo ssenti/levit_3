@@ -21,5 +21,5 @@ License
 ## Tech Stack
 - **Frontend**: Next.js (App Router), React, TypeScript, Tailwind CSS v4 (+ `@tailwindcss/postcss`), Radix UI primitives, `clsx`, `class-variance-authority`, `tailwind-merge`, `lucide-react`, Markdown via `marked` + `dompurify`
 - **Backend**: FastAPI, Uvicorn, Pydantic v2, `httpx`, `python-dotenv`
-- **LLM APIs**: Perplexity API, Gemini API
+- **AI APIs**: Perplexity API, Gemini API
 - **Tooling**: ESLint, TypeScript, npm
