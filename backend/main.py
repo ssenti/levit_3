@@ -106,6 +106,55 @@ def _new_gemini_client() -> genai.Client:
     return client
 
 
+def _fallback_products() -> List[Product]:
+    """Static fallback products used when external APIs fail.
+
+    Keeps the app usable during outages or when API keys are misconfigured.
+    """
+    return [
+        Product(
+            product_name="오메가-3 프리미엄 1000",
+            brand="NutriWell",
+            key_ingredient="EPA+DHA",
+            ingredient_amount=700.0,
+            ingredient_unit="mg",
+            price_per_month_krw=18000,
+            daily_dose="1일 1회, 1캡슐",
+            purchase_url="https://example.com/omega1",
+        ),
+        Product(
+            product_name="오메가-3 밸런스",
+            brand="HealthCore",
+            key_ingredient="EPA+DHA",
+            ingredient_amount=600.0,
+            ingredient_unit="mg",
+            price_per_month_krw=15000,
+            daily_dose="1일 1회, 1캡슐",
+            purchase_url="https://example.com/omega2",
+        ),
+        Product(
+            product_name="오메가-3 골드",
+            brand="BioPlus",
+            key_ingredient="EPA+DHA",
+            ingredient_amount=800.0,
+            ingredient_unit="mg",
+            price_per_month_krw=22000,
+            daily_dose="1일 1회, 1캡슐",
+            purchase_url="https://example.com/omega3",
+        ),
+        Product(
+            product_name="종합비타민 데일리",
+            brand="VitaOne",
+            key_ingredient="비타민/미네랄",
+            ingredient_amount=1.0,
+            ingredient_unit="serving",
+            price_per_month_krw=12000,
+            daily_dose="1일 1회, 1정",
+            purchase_url="https://example.com/multi1",
+        ),
+    ]
+
+
 async def call_perplexity_json(prompt: str) -> Dict[str, Any]:
     """Call Perplexity chat API and parse JSON from the response content.
 
@@ -306,7 +355,10 @@ async def recommend(payload: RecommendInput) -> RecommendResult:
             "  \"price_per_month_krw\": int|null, \"capsule_type\": str|null, \"capsule_count\": int|null, \"daily_dose\": str|null, \"purchase_url\": str|null } ]\n}"
             "\n주의: 수치는 숫자만, 단위는 별도 필드(ingredient_unit). 한국에서 구매 가능 제품 위주."
         )
-        data = await call_perplexity_json(query)
+        try:
+            data = await call_perplexity_json(query)
+        except Exception:
+            data = {}
         products_raw = data.get("products") or data.get("items") or []
 
     products: List[Product] = []
@@ -314,26 +366,36 @@ async def recommend(payload: RecommendInput) -> RecommendResult:
         try:
             products.append(Product(**item))
         except Exception:
-            # attempt soft conversions
+            # attempt soft conversions and mapping to our generic schema
+            epa = parse_float(item.get("epa_mg"))
+            dha = parse_float(item.get("dha_mg"))
+            amount = parse_float(item.get("ingredient_amount"))
+            if amount is None:
+                if epa is not None and dha is not None:
+                    amount = epa + dha
+                else:
+                    amount = epa if epa is not None else dha
+            unit = (item.get("ingredient_unit") and str(item.get("ingredient_unit"))) or ("mg" if amount is not None else None)
+            price_raw = str(item.get("price_per_month_krw"))
+            price_val = int(price_raw.replace("_", "").replace(",", "")) if price_raw.replace("_", "").replace(",", "").isdigit() else None
             products.append(
                 Product(
                     product_name=str(item.get("product_name") or item.get("name") or "unknown"),
                     brand=(item.get("brand") and str(item.get("brand"))) or None,
-                    epa_mg=int(item.get("epa_mg")) if str(item.get("epa_mg")).isdigit() else None,
-                    dha_mg=int(item.get("dha_mg")) if str(item.get("dha_mg")).isdigit() else None,
-                    price_per_month_krw=int(item.get("price_per_month_krw"))
-                    if str(item.get("price_per_month_krw")).replace("_", "").replace(",", "").isdigit()
-                    else None,
+                    key_ingredient=(item.get("key_ingredient") and str(item.get("key_ingredient"))) or None,
+                    ingredient_amount=amount,
+                    ingredient_unit=unit,
+                    price_per_month_krw=price_val,
                     capsule_type=item.get("capsule_type"),
-                    capsule_count=
-                    int(item.get("capsule_count")) if str(item.get("capsule_count")).isdigit() else None,
+                    capsule_count=int(item.get("capsule_count")) if str(item.get("capsule_count")).isdigit() else None,
                     daily_dose=item.get("daily_dose"),
                     purchase_url=item.get("purchase_url"),
                 )
             )
 
     if not products:
-        raise HTTPException(status_code=502, detail="제품 목록 수집 실패")
+        # graceful fallback to static products instead of failing
+        products = _fallback_products()
 
     # Step 4: filter and rank to top3
     budget = payload.budget_krw_per_month or None
@@ -371,7 +433,10 @@ async def recommend(payload: RecommendInput) -> RecommendResult:
         "스키마: {\n  \"insights\": [ { \"product_name\": str, \"pros\": [str], \"cons\": [str], \"brand_trust_score_0to100\": int, \"review_sentiment_0to100\": int, \"safety_flags\": [str], \"brand_trust_summary_kr\": str, \"review_summary_kr\": str, \"notes\": str|null } ]\n}"
     )
 
-    insights_json = await call_perplexity_json(qual_prompt)
+    try:
+        insights_json = await call_perplexity_json(qual_prompt)
+    except Exception:
+        insights_json = {}
     insights_map: Dict[str, ProductInsight] = {}
     for it in insights_json.get("insights", []):
         try:

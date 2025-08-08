@@ -16,11 +16,11 @@ import DOMPurify from "dompurify";
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
 export default function Home() {
-  const [supplementType, setSupplementType] = useState("오메가‑3 지방산");
+  const [supplementType, setSupplementType] = useState("오메가‑3");
   const [isCustomSupplement, setIsCustomSupplement] = useState(false);
   const [customSupplementType, setCustomSupplementType] = useState("");
-  const [budget, setBudget] = useState<number>(30000);
-  const [concerns, setConcerns] = useState("50대 여성, 혈행 개선 및 기억력 저하");
+  const [budget, setBudget] = useState<number>(20000);
+  const [concerns, setConcerns] = useState("");
   const [, setLoading] = useState(false);
   const [step, setStep] = useState<"input" | "clarify" | "loading" | "result">("input");
   const [questions, setQuestions] = useState<ClarifyQuestion[]>([]);
@@ -109,8 +109,17 @@ export default function Home() {
           products: initialProducts ?? undefined,
         }),
       });
-      const data: RecommendResult = await res.json();
-      setResult(data);
+      let data: RecommendResult | null = null;
+      try {
+        data = await res.json();
+      } catch (_) {
+        data = null;
+      }
+      if (!res.ok || !data || !Array.isArray((data as any).ranked)) {
+        const message = (data as any)?.detail || "추천 결과를 가져오지 못했습니다";
+        throw new Error(message);
+      }
+      setResult(data as RecommendResult);
       setStep("result");
     } catch (e) {
       console.error(e);
@@ -232,7 +241,7 @@ export default function Home() {
 
         {/* Results */}
         <div className="space-y-6">
-          {result.ranked.map((r, index) => (
+          {Array.isArray(result.ranked) && result.ranked.map((r, index) => (
             <Card key={r.rank} className={`card-gradient shadow-medium border-border/50 overflow-hidden transition-all duration-300 hover:shadow-xl hover:scale-[1.02] ${index === 0 ? 'ring-2 ring-primary/20' : ''}`}>
               <CardHeader className="relative pb-4">
                                   <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
@@ -496,8 +505,9 @@ export default function Home() {
               setInitialProducts(null);
               setIsCustomSupplement(false);
               setCustomSupplementType("");
-              setSupplementType("오메가‑3 지방산");
-              setBudget(30000);
+              setSupplementType("오메가‑3");
+              setBudget(20000);
+              setConcerns("");
             }}
             className="h-12 text-base flex-1"
           >
@@ -529,8 +539,9 @@ export default function Home() {
                 setInitialProducts(null);
                 setIsCustomSupplement(false);
                 setCustomSupplementType("");
-                setSupplementType("오메가‑3 지방산");
-                setBudget(30000);
+                setSupplementType("오메가‑3");
+                setBudget(20000);
+                setConcerns("");
               }}
               className="flex items-center space-x-3 hover:opacity-80 transition-opacity cursor-pointer"
             >

@@ -1,4 +1,4 @@
-# AI Supplement Assistant
+# AI 영양제 맞춤 비서
 
 This repository contains a minimal full‑stack service that helps users find dietary supplement information and suggestions based on their goals and constraints.
 
@@ -15,4 +15,11 @@ Environment
 - Frontend expects the backend at `http://localhost:8000` by default or can be configured in the app
 
 License
-This project is provided as-is for demonstration and development purposes.
+- This project is provided as-is for demonstration and development purposes.
+
+
+## Tech Stack
+- **Frontend**: Next.js (App Router), React, TypeScript, Tailwind CSS v4 (+ `@tailwindcss/postcss`), Radix UI primitives, `clsx`, `class-variance-authority`, `tailwind-merge`, `lucide-react`, Markdown via `marked` + `dompurify`
+- **Backend**: FastAPI, Uvicorn, Pydantic v2, `httpx`, `python-dotenv`
+- **LLM APIs**: Perplexity API, Gemini API
+- **Tooling**: ESLint, TypeScript, npm
